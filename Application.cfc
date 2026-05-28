@@ -92,7 +92,7 @@
 		</CFIF>
 
 		<CFINCLUDE template="config.cfm">
-		<CFINCLUDE template="UDF.cfm">
+		<CFINCLUDE template="UDF.cfm" runonce="true">
 
 		<!--- Include the requested page. --->
 		<cfinclude template="#ARGUMENTS.TargetPage#">
