@@ -55,24 +55,43 @@ public array function BuildPackageTree(required string Path) {
 
 	Dir=DirectoryList(path=Arguments.Path, listinfo="query", type="Dir");
 
-	// Loop over directory
+	// First pass: count date folders (folders with DTSX files directly in them)
+	var DateFolderCount=0;
+	var SingleDateFolderPath="";
+	
 	for (DirIdx=1; DirIdx LTE Dir.RecordCount; DirIdx++) {
 		if (Dir.Type[DirIdx] EQ "Dir") {
-			// Check for DTSX in child dir
-			FolderFlag="true";
 			DTSXCheck=DirectoryList(path=Dir.Directory[DirIdx] & "/" & Dir.Name[DirIdx], listinfo="name", Type="File", Filter="*.dtsx");
-			if (ArrayLen((DTSXCheck))) FolderFlag="false";
-			Request.BuildPackageTree_Key=Request.BuildPackageTree_Key + 1;
-			FT=ArrayLen(FancyTree) + 1;
-			FancyTree[FT]=StructNew("ordered");
-			FancyTree[FT].folder=true;
-			FancyTree[FT].key="F" & Request.BuildPackageTree_Key;
-			if (ArrayLen(DTSXCheck) EQ 0) {
-				FancyTree[FT].title=Dir.Name[DirIdx];
-			} else {
-				FancyTree[FT].title=DateTimeFormat(ListFirst(Dir.Name[DirIdx],"_") & " " & Replace(ListLast(Dir.Name[DirIdx],"_"),"-",":","All"), "yyyy-mm-dd HH:nn:ss");
+			if (ArrayLen(DTSXCheck) GT 0) {
+				DateFolderCount=DateFolderCount + 1;
+				SingleDateFolderPath=Dir.Directory[DirIdx] & "/" & Dir.Name[DirIdx];
 			}
-			FancyTree[FT].children=BuildPackageTree(Dir.Directory[DirIdx] & "/" & Dir.Name[DirIdx]);
+		}
+	}
+
+	// If there's only one date folder, skip the folder node and return its children directly
+	if (DateFolderCount EQ 1) {
+		FancyTree=BuildPackageTree(SingleDateFolderPath);
+	} else {
+		// Loop over directory - normal behavior when multiple date folders or no date folders
+		for (DirIdx=1; DirIdx LTE Dir.RecordCount; DirIdx++) {
+			if (Dir.Type[DirIdx] EQ "Dir") {
+				// Check for DTSX in child dir
+				FolderFlag="true";
+				DTSXCheck=DirectoryList(path=Dir.Directory[DirIdx] & "/" & Dir.Name[DirIdx], listinfo="name", Type="File", Filter="*.dtsx");
+				if (ArrayLen((DTSXCheck))) FolderFlag="false";
+				Request.BuildPackageTree_Key=Request.BuildPackageTree_Key + 1;
+				FT=ArrayLen(FancyTree) + 1;
+				FancyTree[FT]=StructNew("ordered");
+				FancyTree[FT].folder=true;
+				FancyTree[FT].key="F" & Request.BuildPackageTree_Key;
+				if (ArrayLen(DTSXCheck) EQ 0) {
+					FancyTree[FT].title=Dir.Name[DirIdx];
+				} else {
+					FancyTree[FT].title=DateTimeFormat(ListFirst(Dir.Name[DirIdx],"_") & " " & Replace(ListLast(Dir.Name[DirIdx],"_"),"-",":","All"), "yyyy-mm-dd HH:nn:ss");
+				}
+				FancyTree[FT].children=BuildPackageTree(Dir.Directory[DirIdx] & "/" & Dir.Name[DirIdx]);
+			}
 		}
 	}
 
@@ -168,7 +187,7 @@ public any function ParseDTSX(required xml DTSX) {
 					ObjectData[i].Tasks[x].Children=ArrayNew(1);
 					for (z=1; z LTE ArrayLen(Child.XmlChildren[x].XmlChildren); z++) {
 						ObjectData[i].Tasks[x].Children[z]=StructNew();
-						writedump(Child.XmlChildren[x].XmlChildren[z]);
+//						writedump(Child.XmlChildren[x].XmlChildren[z]);
 						ObjectData[i].Tasks[x].Children[z].Name=Child.XmlChildren[x].XmlChildren[z].XmlName;
 						ObjectData[i].Tasks[x].Children[z].Text=Child.XmlChildren[x].XmlChildren[z].XmlText;
 						ObjectData[i].Tasks[x].Children[z].Comment=Child.XmlChildren[x].XmlChildren[z].XmlComment;
@@ -283,7 +302,7 @@ public string function BuildNodeList(required struct Package) {
 
 	// Render nodes
 	for (i=1; i LTE ArrayLen(Package.Executables); i++) {
-		NodeList=ListAppend(NodeList,"Node_" & REReplaceNoCase(Package.Executables[i]["DTS:refId"],"[^A-Z0-9]","","All"),"|");
+		NodeList=ListAppend(NodeList,"Node_" & REReplaceNoCase(Package.Executables[i]["DTS:refId"],"[^A-Z0-9]","","All") & "~" & Package.Executables[i]["DTS:refId"],"|");
 	}
 	return NodeList;
 
@@ -473,4 +492,129 @@ function GetKeyName(required string Name, required string NsPrefix, required str
 	if (Arguments.RemoveNSPrefix EQ 0 OR ListFirst(Arguments.Name,":") NEQ Arguments.NsPrefix) return Arguments.Name;
 	return ListRest(Arguments.Name,":");
 }
+
+/**
+// From https://cflib.org/udf/formatJSON with correction from "Rory", and corrections for comma, embedded quote handling, fjson size limit by john Bartlett
+* Formats a JSON string with indents &amp; new lines.
+* v1.0 by Ben Koshy
+*
+* @param str      JSON string (Required)
+* @return Returns a string of indent-formated JSON
+* @author Ben Koshy (cf@animex.com)
+* @version 0, September 16, 2012
+*/
+// formatJSON() :: formats and indents JSON string
+// based on blog post @ http://ketanjetty.com/coldfusion/javascript/format-json/
+// modified for CFScript By Ben Koshy @animexcom
+// usage: result = formatJSON('STRING TO BE FORMATTED') OR result = formatJSON(StringVariableToFormat);
+
+public string function formatJSON(instr) {
+	var str=arguments.instr;
+	var char=""; // Current char being processed
+	var fjson = ''; // Output hold variables
+	var fjson2 = '';
+	var pos = 0;
+	var i=0;
+	var j=0;
+	var k=0;
+	var strLen = 0;
+	var indentStr = chr(9); // Adjust Indent Token If you Like
+	var newLine = chr(10); // Adjust New Line Token If you Like <BR>
+	var InQuote=0;
+	var QuoteScan="";
+
+	if (IsJSON(str) EQ "NO") return "Not a JSON object";
+
+	strLen = len(str);
+
+	for (i=1; i<=strLen; i++) {
+		char = mid(str,i,1);
+		if (char EQ Chr(34) AND mid(str,i-1,1) NEQ "\") {
+			// Flag if inside a quote or not
+			InQuote = 1 - InQuote;
+		}
+
+		if (char == '}' || char == ']') {
+			if (InQuote EQ 0) {
+				fjson &= newLine;
+				pos = pos - 1;
+
+				for (j=1; j<=pos; j++) {
+					fjson &= indentStr;
+				}
+			}
+		}
+
+		fjson &= char;
+
+		if (ListFind(",|{|[",char,"|") AND InQuote EQ 0) {
+			fjson &= newLine;
+
+			if (char == '{' || char == '[') {
+				pos = pos + 1;
+			}
+
+			for (k=1; k<=pos; k++) {
+				fjson &= indentStr;
+			}
+		}
+
+		// If the string exceeds 10K, append to fjson2 and clear fjson to avoid the exponential delay in appending to a large string in java
+		if (Len(fjson) GT 10240) {
+			fjson2=fjson2 & fjson;
+			fjson="";
+		}
+	}
+
+	return fjson2 & fjson;
+}
+
+
+public function StructToJSON(required any obj, numeric index=0) {
+	var JSON="";
+	var Keys="";
+	var i=0;
+
+	if (Arguments.index EQ 0 AND IsStruct(Arguments.obj) EQ "no") return; // Do not process if initial object isn't a struct
+
+	if (IsArray(Arguments.Obj)) {
+		if (Arguments.Index) JSON &= RepeatString(Chr(9),Arguments.Index);
+		JSON = JSON & "[" & Chr(10);
+		for (i=1; i LTE ArrayLen(Arguments.Obj); i++) {
+			JSON = JSON & StructToJSON(Arguments.Obj[i], Arguments.Index + 1);
+			if (i LT ArrayLen(Arguments.Obj)) JSON = JSON & ",";
+			JSON = JSON & Chr(10);
+		}
+		if (Arguments.Index) JSON &= RepeatString(Chr(9),Arguments.Index);
+		JSON = JSON & "]";
+	}
+	else if (IsStruct(Arguments.Obj)) {
+		if (Arguments.Index) JSON &= RepeatString(Chr(9),Arguments.Index);
+		JSON = JSON & "{" & Chr(10);
+		Keys=StructKeyList(Arguments.Obj);
+		for (i=1; i LTE StructCount(Arguments.Obj); i++) {
+			JSON = JSON & Chr(9) & "\"" & Keys[i] & "\": " & StructToJSON(Arguments.Obj[Keys[i]], Arguments.Index + 1);
+			if (i LT StructCount(Arguments.Obj)) JSON = JSON & ",";
+			JSON = JSON & Chr(10);
+		}
+		if (Arguments.Index) JSON &= RepeatString(Chr(9),Arguments.Index);
+		JSON = JSON & "}";
+	}
+	else if (IsNumeric(Arguments.Obj)) {
+		JSON = JSON & Arguments.Obj;
+	}
+	else if (IsBoolean(Arguments.Obj)) {
+		JSON = JSON & LCase(Arguments.Obj);
+	}
+	else if (IsNull(Arguments.Obj)) {
+		JSON = JSON & "null";
+	}
+	else {
+		// Escape quotes and backslashes in strings
+		//var Str=Replace(Replace(Arguments.Obj,"\","\\\\","All"),"\","\\","All");
+		JSON = JSON & "\"" & Str & "\"";
+	}
+}
+
+
 </cfscript>

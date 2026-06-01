@@ -45,7 +45,7 @@ https://www.microsoft.com/en-us/download/details.aspx?id=56827
 		<!--- Auto expand root node if only one --->
 		<CFSET FancyTree[1]["expanded"]="true">
 	</CFIF>
-	<CFSET FancyTreeJSON=SerializeJSON(FancyTree)>
+	<CFSET FancyTreeJSON=FormatJSON(SerializeJSON(FancyTree))>
 	<CFOUTPUT>Done.<br></CFOUTPUT>
 	<CFFILE action="write" file="#RootDir#/Exports/FancyTree.json" output="#FancyTreeJSON#" addnewline="NO" mode="666">
 </CFIF>
@@ -73,7 +73,7 @@ function bindClickToPipeDelimitedIds(input, clickHandler) {
 				if (typeof clickHandler === "function") {
 					clickHandler.call(this, e, token);
 				} else {
-					console.log("Clicked:", this.id, "matched token:", token);
+					// console.log("Clicked:", this.id, "matched token:", token);
 					ShowInfo(token);
 				}
 			});
@@ -87,25 +87,11 @@ function bindClickToPipeDelimitedIds(input, clickHandler) {
 
 	return $results;
 }
-function ShowInfo(Node) {
-	
-}
 
 document.getElementById('Status').style.display='none';
 var Code=#FancyTreeJSON#;
 function ShowTree() {
 	$("##tree").fancytree({
-/*
-		extensions: ["filter"],
-		// Define filter-extension options:
-		filter: {
-			autoExpand: true,
-			highlight: false,
-			leavesOnly: true,
-			mode: "hide",
-			nodata: true
-		},
-*/
 		click: function(event, data) {
 //			var ID=data.node.key;
 //			if (ID.substr(0,1) == 'P') ViewCode(ID);
@@ -134,12 +120,14 @@ function RenderChart(chartText) {
 	});
 }
 
+var Package='';
 function ViewCode(Path) {
 	$.ajax({
-		type: 'POST',
+		type: 'GET',
 		url: 'ajax_Mermaid.cfm?Mermaid=' + Path,
 		success: function(data) {
 			// Split the response into two parts
+			//console.log(data);
 			var parts = data.split('~');
 
 			// Assign variables
@@ -148,12 +136,26 @@ function ViewCode(Path) {
 
 			// Optional: debug
 			// Pass only the MermaidChart to RenderChart
+			Package=Path;
 			RenderChart(MermaidChart);
+			document.getElementById('info').innerHTML='';
 			// Attach achors to the nodes after a short delay to allow Mermaid to do it's thing
 			setTimeout(bindClickToPipeDelimitedIds,250,NodeList);
 		},
 		error: function(event, request, settings) {
 			alert('failed [' + event + '][' + request + '][' + settings + ']');
+		}
+	});
+}
+function ShowInfo(ViewNode) {
+	$.ajax({
+		type: 'GET',
+		url: 'ajax_Node.cfm?Package=' + Package + '&Node=' + ViewNode,
+		success: function(data) {
+			document.getElementById('info').innerHTML=data;
+		},
+		error: function(event, request, settings) {
+			alert('failed [' + event + '][' + request + '][' + settings + ']\najax_node.cfm?Package='+Package+'&Node='+ViewNode);
 		}
 	});
 }

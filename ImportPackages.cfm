@@ -43,9 +43,10 @@
 	<CFIF DirectoryExists("#Export#") EQ "NO" OR (DirectoryExists("#Export#") AND FileExists("#Export#/#PackageDir#.ispac") EQ "NO")>
 		<CFSET ExportPackage=1>
 	</CFIF>
-<CFIF FindNoCase("ztemp",Export)>
+<CFIF FindNoCase("ztest",Export)>
 <CFSET ExportPackage=1> <!--- ****************** FORCE REBUILD ********************* --->
 </CFIF>
+<CFSET ExportPackage=1> <!--- ****************** FORCE REBUILD ********************* --->
 	<CFIF ExportPackage>
 		<CFIF DirectoryExists("#Export#") EQ "NO">
 			<CFDIRECTORY action="create" directory="#Export#" mode="666">
@@ -126,7 +127,7 @@
 			<CFSET NodeList=BuildNodeList(Package)>
 
 			<CFOUTPUT>. Saving data files</CFOUTPUT><CFFLUSH>
-			<CFFILE action="write" file="#MermaidFN#.json" output="#SerializeJSON(Package)#" addnewline="no" mode="666">
+			<CFFILE action="write" file="#MermaidFN#.json" output="#FormatJSON(SerializeJSON(Package))#" addnewline="no" mode="666">
 			<CFFILE action="write" file="#MermaidFN#.nodes" output="#NodeList#" addnewline="no" mode="666">
 			<CFFILE action="write" file="#MermaidFN#.mermaid" output="#Mermaid#" addnewline="no" mode="666">
 		</CFLOOP>
