@@ -98,6 +98,53 @@ public array function BuildPackageTree(required string Path) {
 	return FancyTree;
 }
 
+// Converts a DTSX XML node into a JSON-friendly struct while preserving nested sections
+public struct function ParseDTSXNode(required xml DTSX) {
+	var Node=StructNew();
+	var ChildIdx=0;
+
+	Node.Name=Arguments.DTSX.XmlName;
+	Node.Attributes=Arguments.DTSX.XmlAttributes;
+	Node.Text=Trim(Replace(Replace(Arguments.DTSX.XmlText,"\n","","All"),"\t","","All"));
+	Node.Comment=Arguments.DTSX.XmlComment;
+	Node.Children=ArrayNew(1);
+
+	for (ChildIdx=1; ChildIdx LTE ArrayLen(Arguments.DTSX.XmlChildren); ChildIdx++) {
+		Node.Children[ChildIdx]=ParseDTSXNode(Arguments.DTSX.XmlChildren[ChildIdx]);
+	}
+
+	return Node;
+}
+
+public any function ParseDTSXNodeCollection(required any DTSXNodes) {
+	var Nodes=Arguments.DTSXNodes;
+	var i=0;
+
+	if (IsArray(Nodes)) {
+		for (i=1; i LTE ArrayLen(Nodes); i++) {
+			Nodes[i]=ParseDTSXNode(Nodes[i]);
+		}
+		return Nodes;
+	}
+
+	return ParseDTSXNode(Nodes);
+}
+
+public void function AddDTSXSection(required struct Package, required string Key, required any Value) {
+	var Tmp="";
+
+	if (StructKeyExists(Arguments.Package,Arguments.Key)) {
+		if (IsArray(Arguments.Package[Arguments.Key]) EQ "NO") {
+			Tmp=Arguments.Package[Arguments.Key];
+			Arguments.Package[Arguments.Key]=ArrayNew(1);
+			Arguments.Package[Arguments.Key][1]=Tmp;
+		}
+		ArrayAppend(Arguments.Package[Arguments.Key],Arguments.Value);
+	} else {
+		Arguments.Package[Arguments.Key]=Arguments.Value;
+	}
+}
+
 // Recurses through the DTSC XML and extracts information into a struct
 // XML Reference: https://learn.microsoft.com/en-us/openspecs/sql_data_portability/ms-dtsx/235600e9-0c13-4b5b-a388-aa3c65aec1dd
 public any function ParseDTSX(required xml DTSX) {
@@ -148,8 +195,11 @@ public any function ParseDTSX(required xml DTSX) {
 				} else if (Arguments.DTSX.XmlChildren[ChildIdx].XmlName EQ "DTS:PrecedenceConstraints") {
 					Package.Relationships=ParseDTSX(Arguments.DTSX.XmlChildren[ChildIdx]);
 
-				} else if (ListFindNoCase("DTS:ObjectData,DTS:ConnectionManagers,DTS:Configurations,DTS:LogProviders,DTS:Variables,DTS:LoggingOptions",Arguments.DTSX.XmlChildren[ChildIdx].XMLName)) {
-					Package[Arguments.DTSX.XmlChildren[ChildIdx].XMLName]=Arguments.DTSX.XmlChildren[ChildIdx];
+				} else if (Arguments.DTSX.XmlChildren[ChildIdx].XmlName EQ "DTS:Property" AND StructKeyExists(Arguments.DTSX.XmlChildren[ChildIdx].XmlAttributes,"DTS:Name")) {
+					Package[Arguments.DTSX.XmlChildren[ChildIdx].XmlAttributes["DTS:Name"]]=Arguments.DTSX.XmlChildren[ChildIdx].XmlText;
+
+				} else if (ListFindNoCase("DTS:ObjectData,DTS:ConnectionManagers,DTS:Configurations,DTS:LogProviders,DTS:Variables,DTS:LoggingOptions,DTS:DesignTimeProperties,DTS:EventHandlers,DTS:PackageVariables,DTS:ForEachEnumerator,DTS:ForEachVariableMappings,DTS:PropertyExpression,DTS:Property",Arguments.DTSX.XmlChildren[ChildIdx].XMLName)) {
+					AddDTSXSection(Package,Arguments.DTSX.XmlChildren[ChildIdx].XMLName,Arguments.DTSX.XmlChildren[ChildIdx]);
 				}
 			}
 		}
@@ -157,8 +207,8 @@ public any function ParseDTSX(required xml DTSX) {
 
 	// Parse out Package structures
 	if (IsStruct(Package)) {
-		// Remove unneeded objects
-		for (Key in "DTS:LogProviders,DTS:LoggingOptions,xmlns:DTS") {
+		// Remove unneeded namespace attributes
+		for (Key in "xmlns:DTS") {
 			if (StructKeyExists(Package,Key)) StructDelete(Package,Key);
 		}
 
@@ -184,14 +234,11 @@ public any function ParseDTSX(required xml DTSX) {
 					ObjectData[i].Tasks[x]=StructNew();
 					ObjectData[i].Tasks[x].Name=Child.XmlChildren[x].XmlName;
 					ObjectData[i].Tasks[x].Attributes=Child.XmlChildren[x].XmlAttributes;
+					ObjectData[i].Tasks[x].Text=Trim(Replace(Replace(Child.XmlChildren[x].XmlText,"\n","","All"),"\t","","All"));
+					ObjectData[i].Tasks[x].Comment=Child.XmlChildren[x].XmlComment;
 					ObjectData[i].Tasks[x].Children=ArrayNew(1);
 					for (z=1; z LTE ArrayLen(Child.XmlChildren[x].XmlChildren); z++) {
-						ObjectData[i].Tasks[x].Children[z]=StructNew();
-//						writedump(Child.XmlChildren[x].XmlChildren[z]);
-						ObjectData[i].Tasks[x].Children[z].Name=Child.XmlChildren[x].XmlChildren[z].XmlName;
-						ObjectData[i].Tasks[x].Children[z].Text=Child.XmlChildren[x].XmlChildren[z].XmlText;
-						ObjectData[i].Tasks[x].Children[z].Comment=Child.XmlChildren[x].XmlChildren[z].XmlComment;
-						ObjectData[i].Tasks[x].Children[z].Attributes=Child.XmlChildren[x].XmlChildren[z].XmlAttributes;
+						ObjectData[i].Tasks[x].Children[z]=ParseDTSXNode(Child.XmlChildren[x].XmlChildren[z]);
 					}
 				}
 			}
@@ -289,6 +336,42 @@ public any function ParseDTSX(required xml DTSX) {
 					Config[Child.XmlAttributes["DTS:Namespace"] & "." & Child.XmlAttributes["DTS:ObjectName"]]=Child.XmlChildren[1].XmlText;
 			}
 			Package["DTS:Variables"]=Config;
+		}
+
+		if (StructKeyExists(Package,"DTS:PackageVariables")) {
+			Package["DTS:PackageVariables"]=ParseDTSXNodeCollection(Package["DTS:PackageVariables"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:EventHandlers")) {
+			Package["DTS:EventHandlers"]=ParseDTSXNodeCollection(Package["DTS:EventHandlers"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:ForEachEnumerator")) {
+			Package["DTS:ForEachEnumerator"]=ParseDTSXNodeCollection(Package["DTS:ForEachEnumerator"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:ForEachVariableMappings")) {
+			Package["DTS:ForEachVariableMappings"]=ParseDTSXNodeCollection(Package["DTS:ForEachVariableMappings"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:PropertyExpression")) {
+			Package["DTS:PropertyExpression"]=ParseDTSXNodeCollection(Package["DTS:PropertyExpression"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:Property")) {
+			Package["DTS:Property"]=ParseDTSXNodeCollection(Package["DTS:Property"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:DesignTimeProperties")) {
+			Package["DTS:DesignTimeProperties"]=ParseDTSXNodeCollection(Package["DTS:DesignTimeProperties"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:LogProviders")) {
+			Package["DTS:LogProviders"]=ParseDTSXNodeCollection(Package["DTS:LogProviders"]);
+		}
+
+		if (StructKeyExists(Package,"DTS:LoggingOptions")) {
+			Package["DTS:LoggingOptions"]=ParseDTSXNodeCollection(Package["DTS:LoggingOptions"]);
 		}
 
 	}

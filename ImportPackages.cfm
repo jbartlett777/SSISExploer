@@ -58,13 +58,6 @@
 			EXEC SSISDB.catalog.get_project <cfqueryparam CFSQLType="CF_SQL_VARCHAR" value="#Folder#">,
 											<cfqueryparam CFSQLType="CF_SQL_VARCHAR" value="#PackageDir#">
 		</CFQUERY>
-		<!---
-		<cfstoredproc procedure="SSISDB.catalog.get_project" datasource="#DSN#">
-			<cfprocparam cfsqltype="CF_SQL_VARCHAR" type="in" value="#Folder#">
-			<cfprocparam cfsqltype="CF_SQL_VARCHAR" type="in" value="#PackageDir#">
-			<cfprocresult name="PackageBinary">
-		</cfstoredproc>
-		--->
 		<CFOUTPUT>. Saving</CFOUTPUT><CFFLUSH>
 		<CFFILE action="write" file="#Export#/#PackageDir#.ispac" output="#PackageBinary.Project_Stream#">
 		<!--- Unzip package --->

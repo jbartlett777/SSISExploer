@@ -1,3 +1,4 @@
+<CFSETTING requesttimeouot="300">
 <!---
 Sample packages:
 https://www.microsoft.com/en-us/download/details.aspx?id=56827
